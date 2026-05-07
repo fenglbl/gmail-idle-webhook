@@ -3,7 +3,7 @@ import { simpleParser } from 'mailparser';
 import { sendWebhooks } from './webhook.js';
 import logger from './logger.js';
 
-const NOOP_INTERVAL = 30000;
+const NOOP_INTERVAL = 10000;
 
 export class GmailWatcher {
   constructor(config) {
@@ -65,7 +65,7 @@ export class GmailWatcher {
         if (this.client?.usable && !this._checking) {
           this.client.noop().catch(() => {});
           logger.debug('NOOP 触发检查');
-          this._checkNew();
+          this._checkNew('NOOP');
         }
       }, NOOP_INTERVAL);
 
@@ -75,7 +75,7 @@ export class GmailWatcher {
           logger.debug('进入 IDLE...');
           await this.client.idle();
           logger.debug('IDLE 返回');
-          await this._checkNew();
+          await this._checkNew('IDLE');
         } catch (idleErr) {
           logger.warn('IDLE 异常:', idleErr.message);
           break;
@@ -96,9 +96,9 @@ export class GmailWatcher {
     }
   }
 
-  async _checkNew() {
+  async _checkNew(source = 'IDLE') {
     if (this._checking) {
-      logger.debug('跳过 _checkNew（上一轮未结束）');
+      logger.debug(`跳过检查 [${source}]（上一轮未结束）`);
       return;
     }
     if (!this.client || !this.client.usable) return;
@@ -106,7 +106,7 @@ export class GmailWatcher {
     this._checking = true;
     try {
       const uidRange = `${this._lastUid + 1}:*`;
-      logger.debug(`fetch uid ${uidRange} (lastUid=${this._lastUid})`);
+      logger.debug(`[${source}] fetch uid ${uidRange} (lastUid=${this._lastUid})`);
       const messages = this.client.fetch(
         { uid: uidRange },
         { uid: true, source: true, envelope: true, internalDate: true }
@@ -140,7 +140,7 @@ export class GmailWatcher {
 
       this._lastUid = maxUid;
       if (count > 0) {
-        logger.info(`处理了 ${count} 封新邮件，lastUid=${this._lastUid}`);
+        logger.info(`[${source}] 处理了 ${count} 封新邮件，lastUid=${this._lastUid}`);
       } else {
         logger.debug('无新邮件');
       }
