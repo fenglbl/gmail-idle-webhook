@@ -130,7 +130,7 @@ textarea { resize: vertical; font-family: "SF Mono", "Fira Code", "Cascadia Code
         <div class="vars-label">可用变量</div>
         <table class="vars-table">
           <tr v-for="v in varsList" :key="v.k">
-            <td><code @click="copyVar('{{'+v.k+'}}')">{{ '{{'+v.k+'}}' }}</code></td>
+            <td><code @click="copyVar(v.k)">{{ v.label }}</code></td>
             <td class="vars-desc">{{ v.d }}</td>
           </tr>
         </table>
@@ -235,7 +235,8 @@ createApp({
       return Math.max(3, (t || '').split('\n').length + 1);
     }
 
-    function copyVar(v) {
+    function copyVar(k) {
+      const v = '{{' + k + '}}';
       const ta = document.createElement('textarea');
       ta.value = v; ta.style.position = 'fixed'; ta.style.opacity = '0';
       document.body.appendChild(ta); ta.select();
@@ -244,14 +245,14 @@ createApp({
     }
 
     const varsList = [
-      { k: 'uid',        d: '邮件 UID' },
-      { k: 'from',       d: '发件人' },
-      { k: 'to',         d: '收件人' },
-      { k: 'subject',    d: '邮件主题' },
-      { k: 'date',       d: '发送时间（ISO 8601）' },
-      { k: 'text',       d: '正文（纯文本，前5000字）' },
-      { k: 'messageId',  d: 'Message-ID' },
-      { k: 'html',       d: '是否有HTML正文（true/false）' },
+      { k: 'uid',        label: '{{uid}}',        d: '邮件 UID' },
+      { k: 'from',       label: '{{from}}',       d: '发件人' },
+      { k: 'to',         label: '{{to}}',         d: '收件人' },
+      { k: 'subject',    label: '{{subject}}',    d: '邮件主题' },
+      { k: 'date',       label: '{{date}}',       d: '发送时间（ISO 8601）' },
+      { k: 'text',       label: '{{text}}',       d: '正文（纯文本，前5000字）' },
+      { k: 'messageId',  label: '{{messageId}}',  d: 'Message-ID' },
+      { k: 'html',       label: '{{html}}',       d: '是否有HTML正文（true/false）' },
     ];
 
     function applyPreset(type) {
