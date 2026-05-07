@@ -8,29 +8,22 @@
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; }
-
 .container { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
-
 header { margin-bottom: 32px; }
 header h1 { font-size: 20px; font-weight: 600; }
 header .status { font-size: 13px; color: #666; margin-top: 4px; display: flex; align-items: center; gap: 6px; }
 header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 header .dot.on { background: #22c55e; }
 header .dot.off { background: #ef4444; }
-
 .card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #333; }
-
 label { display: block; font-size: 13px; font-weight: 500; color: #555; margin-bottom: 4px; }
-input, select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; transition: border-color .15s; }
-input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
-
+input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; transition: border-color .15s; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
+textarea { resize: vertical; font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace; font-size: 13px; line-height: 1.5; }
 .row { display: grid; gap: 12px; }
-.row-2 { grid-template-columns: 2fr 1fr; }
 .row-3 { grid-template-columns: 2fr 1fr 1fr; }
-
 .field { margin-bottom: 12px; }
-
 .btn { padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s; }
 .btn-primary { background: #3b82f6; color: #fff; }
 .btn-primary:hover { background: #2563eb; }
@@ -39,11 +32,19 @@ input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 
 .btn-danger:hover { background: #fecaca; }
 .btn-ghost { background: #f3f4f6; color: #374151; }
 .btn-ghost:hover { background: #e5e7eb; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
 
-.hook-list { list-style: none; }
-.hook-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
-.hook-item:last-child { border-bottom: none; }
-.hook-url { flex: 1; font-size: 13px; font-family: monospace; color: #555; word-break: break-all; }
+/* Webhook card */
+.hook-card { background: #fafafa; border: 1px solid #eee; border-radius: 8px; padding: 14px; margin-bottom: 12px; position: relative; }
+.hook-card .hook-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hook-card .hook-num { font-size: 12px; font-weight: 600; color: #999; width: 20px; }
+
+.vars-ref { background: #f0f4ff; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #555; line-height: 1.8; margin-top: 12px; }
+.vars-ref code { background: #e0e7ff; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #4338ca; cursor: pointer; }
+.vars-ref code:hover { background: #c7d2fe; }
+.vars-ref .vars-label { font-weight: 600; color: #666; margin-bottom: 4px; }
+
+.template-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 99; animation: fadeInUp .2s ease; }
 .toast.ok { background: #22c55e; color: #fff; }
@@ -102,16 +103,41 @@ input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 
     <!-- Webhooks -->
     <div class="card">
       <h2>Webhooks</h2>
-      <ul class="hook-list" v-if="form.webhooks.length">
-        <li class="hook-item" v-for="(w, i) in form.webhooks" :key="i">
-          <span class="hook-url">{{ w.url }}</span>
-          <button class="btn btn-danger" @click="removeHook(i)">删除</button>
-        </li>
-      </ul>
-      <p v-else style="font-size:13px;color:#999;margin-bottom:12px">暂无 webhook</p>
+
+      <div v-for="(w, i) in form.webhooks" :key="i" class="hook-card">
+        <div class="hook-header">
+          <span class="hook-num">#{{ i + 1 }}</span>
+          <input v-model="w.url" placeholder="https://your-webhook.com/endpoint" style="flex:1" @blur="updateHook(i, w)" />
+          <button class="btn btn-danger btn-sm" @click="removeHook(i)">删除</button>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Payload 模板 <span style="color:#aaa;font-weight:400">（留空 = 默认 JSON）</span></label>
+          <textarea v-model="w.template" :rows="templateRows(w.template)" placeholder='{"text":"{{subject}} - {{from}}"}' @blur="updateHook(i, w)"></textarea>
+        </div>
+      </div>
+
+      <p v-if="!form.webhooks.length" style="font-size:13px;color:#999;margin-bottom:12px">暂无 webhook</p>
+
       <div style="display:flex;gap:8px;margin-top:12px">
-        <input v-model="newHookUrl" placeholder="https://your-webhook.com/endpoint" style="flex:1" @keyup.enter="addHook" />
-        <button class="btn btn-ghost" @click="addHook" :disabled="!newHookUrl">添加</button>
+        <button class="btn btn-ghost" @click="addHook">+ 添加 Webhook</button>
+      </div>
+
+      <!-- 变量参考 -->
+      <div class="vars-ref">
+        <div class="vars-label">可用变量</div>
+        <code @click="copyVar('{{uid}}')">uid</code>
+        <code @click="copyVar('{{from}}')">from</code>
+        <code @click="copyVar('{{to}}')">to</code>
+        <code @click="copyVar('{{subject}}')">subject</code>
+        <code @click="copyVar('{{date}}')">date</code>
+        <code @click="copyVar('{{text}}')">text</code>
+        <code @click="copyVar('{{messageId}}')">messageId</code>
+        <code @click="copyVar('{{html}}')">html</code>
+        <div class="template-presets">
+          <button class="btn btn-ghost btn-sm" @click="applyPreset('json')">预设: JSON</button>
+          <button class="btn btn-ghost btn-sm" @click="applyPreset('text')">预设: 纯文本</button>
+          <button class="btn btn-ghost btn-sm" @click="applyPreset('form')">预设: 表单格式</button>
+        </div>
       </div>
     </div>
   </div>
@@ -122,7 +148,6 @@ input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 
 
 <script>
 const API = window.location.pathname.replace(/\/admin\/?.*$/, '') || '';
-
 const { createApp, ref, reactive, onMounted } = Vue;
 
 createApp({
@@ -133,8 +158,8 @@ createApp({
       webhooks: [],
     });
     const saving = ref(false);
-    const newHookUrl = ref('');
     const toast = reactive({ show: false, msg: '', type: 'ok' });
+    const presetTarget = ref(-1);
 
     function notify(msg, type = 'ok') {
       toast.show = true; toast.msg = msg; toast.type = type;
@@ -142,79 +167,94 @@ createApp({
     }
 
     async function loadStatus() {
-      try {
-        const r = await fetch(API + '/health');
-        const d = await r.json();
-        Object.assign(status, d.watcher);
-      } catch {}
+      try { const r = await fetch(API + '/health'); Object.assign(status, (await r.json()).watcher); } catch {}
     }
 
     async function loadConfig() {
       try {
-        const r = await fetch(API + '/config');
-        const d = await r.json();
+        const d = await (await fetch(API + '/config')).json();
         if (d.imap) Object.assign(form.imap, d.imap);
-        if (d.webhooks) form.webhooks = d.webhooks;
+        if (d.webhooks) form.webhooks = d.webhooks.map(w => ({ url: w.url, headers: w.headers || {}, template: w.template || '' }));
       } catch {}
     }
 
     async function saveImap() {
       saving.value = true;
       try {
-        const r = await fetch(API + '/config', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+        const d = await (await fetch(API + '/config', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ imap: form.imap }),
-        });
-        const d = await r.json();
-        if (d.ok) {
-          notify('已保存，watcher 重启中...');
-          setTimeout(loadStatus, 2000);
-        } else {
-          notify('保存失败', 'err');
-        }
-      } catch {
-        notify('请求失败', 'err');
-      }
+        })).json();
+        if (d.ok) { notify('已保存，watcher 重启中...'); setTimeout(loadStatus, 2000); }
+        else notify('保存失败', 'err');
+      } catch { notify('请求失败', 'err'); }
       saving.value = false;
     }
 
     async function addHook() {
-      const url = newHookUrl.value.trim();
-      if (!url) return;
+      // 先保存当前所有 webhooks（确保 url/template 同步）
+      // 然后添加一个新的空 webhook
       try {
         const r = await fetch(API + '/webhooks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: '', template: '' }),
         });
         const d = await r.json();
         if (d.ok) {
-          form.webhooks = d.webhooks;
-          newHookUrl.value = '';
+          form.webhooks = d.webhooks.map(w => ({ url: w.url, headers: w.headers || {}, template: w.template || '' }));
           notify('已添加');
         }
-      } catch {
-        notify('添加失败', 'err');
-      }
+      } catch { notify('添加失败', 'err'); }
+    }
+
+    async function updateHook(i, w) {
+      try {
+        const r = await fetch(API + '/webhooks/' + i, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(w),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          form.webhooks = d.webhooks.map(h => ({ url: h.url, headers: h.headers || {}, template: h.template || '' }));
+        }
+      } catch {}
     }
 
     async function removeHook(i) {
       try {
-        const r = await fetch(API + '/webhooks/' + i, { method: 'DELETE' });
-        const d = await r.json();
+        const d = await (await fetch(API + '/webhooks/' + i, { method: 'DELETE' })).json();
         if (d.ok) {
-          form.webhooks = d.webhooks;
+          form.webhooks = d.webhooks.map(h => ({ url: h.url, headers: h.headers || {}, template: h.template || '' }));
           notify('已删除');
         }
-      } catch {
-        notify('删除失败', 'err');
+      } catch { notify('删除失败', 'err'); }
+    }
+
+    function templateRows(t) {
+      return Math.max(3, (t || '').split('\n').length + 1);
+    }
+
+    function copyVar(v) {
+      navigator.clipboard.writeText(v).then(() => notify('已复制 ' + v));
+    }
+
+    function applyPreset(type) {
+      const presets = {
+        json: JSON.stringify({ subject: '{{subject}}', from: '{{from}}', to: '{{to}}', date: '{{date}}', text: '{{text}}', uid: '{{uid}}' }, null, 2),
+        text: '新邮件\n发件人: {{from}}\n主题: {{subject}}\n时间: {{date}}\n\n{{text}}',
+        form: 'subject={{subject}}&from={{from}}&to={{to}}&date={{date}}&text={{text}}&uid={{uid}}',
+      };
+      // 应用到最后一个 webhook，或创建新的
+      if (form.webhooks.length > 0) {
+        const last = form.webhooks.length - 1;
+        form.webhooks[last].template = presets[type];
+        updateHook(last, form.webhooks[last]);
       }
     }
 
     onMounted(() => { loadConfig(); loadStatus(); setInterval(loadStatus, 10000); });
 
-    return { status, form, saving, newHookUrl, toast, saveImap, addHook, removeHook };
+    return { status, form, saving, toast, saveImap, addHook, updateHook, removeHook, templateRows, copyVar, applyPreset };
   }
 }).mount('#app');
 </script>

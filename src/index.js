@@ -52,10 +52,26 @@ app.put('/config', async (req, res) => {
 
 // 添加 webhook
 app.post('/webhooks', (req, res) => {
-  const { url, headers } = req.body;
+  const { url, headers, template } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
 
-  config.webhooks.push({ url, headers: headers || {} });
+  config.webhooks.push({ url, headers: headers || {}, template: template || '' });
+  saveConfig(config);
+  res.json({ ok: true, webhooks: config.webhooks });
+});
+
+// 更新 webhook
+app.put('/webhooks/:index', (req, res) => {
+  const i = parseInt(req.params.index, 10);
+  if (i < 0 || i >= config.webhooks.length) {
+    return res.status(404).json({ error: 'not found' });
+  }
+  const { url, headers, template } = req.body;
+  config.webhooks[i] = {
+    url: url ?? config.webhooks[i].url,
+    headers: headers ?? config.webhooks[i].headers,
+    template: template ?? config.webhooks[i].template ?? '',
+  };
   saveConfig(config);
   res.json({ ok: true, webhooks: config.webhooks });
 });

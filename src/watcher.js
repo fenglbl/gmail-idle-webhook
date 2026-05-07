@@ -102,17 +102,18 @@ export class GmailWatcher {
       for await (const msg of messages) {
         try {
           const parsed = await simpleParser(msg.source);
-          const payload = {
-            uid: msg.uid,
+          const vars = {
+            uid: String(msg.uid),
             from: parsed.from?.text || '',
             to: parsed.to?.text || '',
             subject: parsed.subject || '',
-            date: parsed.date?.toISOString() || msg.internalDate?.toISOString(),
-            text: parsed.text?.substring(0, 5000), // 截断，防大邮件
-            html: !!parsed.html,
+            date: parsed.date?.toISOString() || msg.internalDate?.toISOString() || '',
+            text: (parsed.text || '').substring(0, 5000),
+            html: parsed.html ? 'true' : 'false',
+            messageId: parsed.messageId || '',
           };
-          logger.info(`新邮件: ${payload.subject} (uid ${payload.uid})`);
-          await sendWebhooks(this.config.webhooks, { type: 'new_mail', data: payload });
+          logger.info(`新邮件: ${vars.subject} (uid ${vars.uid})`);
+          await sendWebhooks(this.config.webhooks, vars);
         } catch (parseErr) {
           logger.error('解析邮件失败:', parseErr.message);
         }
