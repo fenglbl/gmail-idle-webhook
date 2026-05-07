@@ -1,10 +1,17 @@
 import logger from './logger.js';
 
-// 将模板中的 {{变量}} 替换为实际值
+// 将模板中的 {{变量}} 替换为实际值，JSON 模式下转义特殊字符
 function renderTemplate(template, vars) {
+  const isJson = template.trim().startsWith('{') || template.trim().startsWith('[');
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const val = vars[key];
-    return val != null ? String(val) : '';
+    let val = vars[key];
+    if (val == null) return '';
+    val = String(val);
+    if (isJson) {
+      // JSON 模式下转义会破坏结构的字符
+      val = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    }
+    return val;
   });
 }
 
@@ -35,7 +42,14 @@ export async function sendWebhooks(webhooks, vars) {
         body,
         signal: AbortSignal.timeout(10000),
       });
-      logger.info(`Webhook ${hook.url} → ${res.status}`);
+
+      if (res.status >= 400) {
+        const errText = await res.text().catch(() => '');
+        logger.warn(`Webhook ${hook.url} → ${res.status} ${errText.substring(0, 200)}`);
+        logger.debug('Sent body:', body.substring(0, 500));
+      } else {
+        logger.info(`Webhook ${hook.url} → ${res.status}`);
+      }
     } catch (err) {
       logger.error(`Webhook ${hook.url} failed:`, err.message);
     }
