@@ -103,6 +103,47 @@ textarea { resize: vertical; font-family: "SF Mono", "Fira Code", "Cascadia Code
       </div>
     </div>
 
+    <!-- 代理配置 -->
+    <div class="card">
+      <h2>代理（可选）</h2>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <label style="margin:0;cursor:pointer">
+          <input type="checkbox" v-model="form.proxy.enabled" style="width:auto;margin-right:4px" @change="saveProxy" />
+          启用代理
+        </label>
+      </div>
+      <div v-if="form.proxy.enabled">
+        <div class="row row-3" style="margin-bottom:4px">
+          <div class="field" style="margin-bottom:0">
+            <label>类型</label>
+            <select v-model="form.proxy.type" @change="saveProxy">
+              <option value="socks5">SOCKS5</option>
+              <option value="socks4">SOCKS4</option>
+              <option value="http">HTTP</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Host</label>
+            <input v-model="form.proxy.host" placeholder="127.0.0.1" @blur="saveProxy" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Port</label>
+            <input v-model.number="form.proxy.port" type="number" placeholder="1080" @blur="saveProxy" />
+          </div>
+        </div>
+        <div class="row row-2" style="margin-bottom:0">
+          <div class="field" style="margin-bottom:0">
+            <label>用户名（可选）</label>
+            <input v-model="form.proxy.user" @blur="saveProxy" />
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>密码（可选）</label>
+            <input v-model="form.proxy.pass" type="password" @blur="saveProxy" />
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Webhooks -->
     <div class="card">
       <h2>Webhooks</h2>
@@ -157,6 +198,7 @@ createApp({
     const status = reactive({ running: false, connected: false });
     const form = reactive({
       imap: { host: 'imap.gmail.com', port: 993, secure: true, user: '', password: '' },
+      proxy: { enabled: false, type: 'socks5', host: '', port: 1080, user: '', pass: '' },
       webhooks: [],
     });
     const saving = ref(false);
@@ -176,8 +218,23 @@ createApp({
       try {
         const d = await (await fetch(API + '/config')).json();
         if (d.imap) Object.assign(form.imap, d.imap);
+        if (d.proxy) Object.assign(form.proxy, d.proxy);
         if (d.webhooks) form.webhooks = d.webhooks.map(w => ({ url: w.url, headers: w.headers || {}, template: w.template || '' }));
       } catch {}
+    }
+
+    let proxyTimer = null;
+    async function saveProxy() {
+      clearTimeout(proxyTimer);
+      proxyTimer = setTimeout(async () => {
+        try {
+          const d = await (await fetch(API + '/config', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: form.proxy }),
+          })).json();
+          if (d.ok) notify('代理已保存');
+        } catch { notify('保存失败', 'err'); }
+      }, 500);
     }
 
     async function saveImap() {
@@ -287,7 +344,7 @@ createApp({
 
     onMounted(() => { loadConfig(); loadStatus(); setInterval(loadStatus, 10000); });
 
-    return { status, form, saving, toast, varsList, saveImap, addHook, updateHook, testHook, removeHook, templateRows, copyVar, applyPreset };
+    return { status, form, saving, toast, varsList, saveImap, saveProxy, addHook, updateHook, testHook, removeHook, templateRows, copyVar, applyPreset };
   }
 }).mount('#app');
 </script>

@@ -13,8 +13,16 @@ const DEFAULT_CONFIG = {
     user: '',
     password: '',  // Gmail App Password，不是登录密码
   },
+  proxy: {
+    enabled: false,
+    type: 'socks5', // socks5 / socks4 / http
+    host: '',
+    port: 1080,
+    user: '',
+    pass: '',
+  },
   webhooks: [],  // [{ url: 'https://...', headers?: {} }]
-  pollFallback: 30000, // IMAP IDLE 断线后轮询间隔 ms
+  pollFallback: 30000,
 };
 
 export function loadConfig() {

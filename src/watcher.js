@@ -17,7 +17,7 @@ export class GmailWatcher {
   }
 
   _makeClient() {
-    return new ImapFlow({
+    const opts = {
       host: this.config.imap.host,
       port: this.config.imap.port,
       secure: this.config.imap.secure,
@@ -26,7 +26,17 @@ export class GmailWatcher {
         pass: this.config.imap.password,
       },
       logger: false,
-    });
+    };
+
+    // 代理配置
+    const p = this.config.proxy;
+    if (p?.enabled && p?.host && p?.port) {
+      const auth = p.user ? `${encodeURIComponent(p.user)}:${encodeURIComponent(p.pass || '')}@` : '';
+      opts.proxy = `${p.type}://${auth}${p.host}:${p.port}`;
+      logger.info(`IMAP 代理: ${p.type}://${p.host}:${p.port}`);
+    }
+
+    return new ImapFlow(opts);
   }
 
   async start() {
