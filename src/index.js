@@ -58,6 +58,60 @@ app.post('/webhooks', (req, res) => {
   res.json({ ok: true, webhooks: config.webhooks });
 });
 
+// 测试 webhook
+app.post('/webhooks/:index/test', async (req, res) => {
+  const i = parseInt(req.params.index, 10);
+  if (i < 0 || i >= config.webhooks.length) {
+    return res.status(404).json({ error: 'not found' });
+  }
+  const hook = config.webhooks[i];
+  if (!hook.url) return res.status(400).json({ error: 'URL 为空' });
+
+  const testVars = {
+    uid: '12345',
+    from: 'test@example.com',
+    to: config.imap.user || 'you@gmail.com',
+    subject: '[测试] Webhook 连通性测试',
+    date: new Date().toISOString(),
+    text: '这是一条测试消息，如果你收到此内容说明 webhook 配置正确。',
+    messageId: '<test-' + Date.now() + '@example.com>',
+    html: 'false',
+  };
+
+  try {
+    let body;
+    let contentType = 'application/json';
+
+    if (hook.template) {
+      body = hook.template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+        const val = testVars[key];
+        return val != null ? String(val) : '';
+      });
+      if (!body.trim().startsWith('{') && !body.trim().startsWith('[')) {
+        contentType = 'text/plain';
+      }
+    } else {
+      body = JSON.stringify(testVars);
+    }
+
+    const result = await fetch(hook.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': contentType,
+        ...(hook.headers || {}),
+      },
+      body,
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const status = result.status;
+    const text = await result.text().catch(() => '');
+    res.json({ ok: status >= 200 && status < 400, status, response: text.substring(0, 500) });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 // 更新 webhook
 app.put('/webhooks/:index', (req, res) => {
   const i = parseInt(req.params.index, 10);

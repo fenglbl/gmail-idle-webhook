@@ -111,6 +111,7 @@ textarea { resize: vertical; font-family: "SF Mono", "Fira Code", "Cascadia Code
         <div class="hook-header">
           <span class="hook-num">#{{ i + 1 }}</span>
           <input v-model="w.url" placeholder="https://your-webhook.com/endpoint" style="flex:1" @blur="updateHook(i, w)" />
+          <button class="btn btn-ghost btn-sm" @click="testHook(i)" :disabled="w._testing">{{ w._testing ? '测试中...' : '测试' }}</button>
           <button class="btn btn-danger btn-sm" @click="removeHook(i)">删除</button>
         </div>
         <div class="field" style="margin-bottom:0">
@@ -221,6 +222,21 @@ createApp({
       } catch {}
     }
 
+    async function testHook(i) {
+      const w = form.webhooks[i];
+      if (!w.url) { notify('请先填写 URL', 'err'); return; }
+      w._testing = true;
+      try {
+        const d = await (await fetch(API + '/webhooks/' + i + '/test', { method: 'POST' })).json();
+        if (d.ok) {
+          notify('测试成功 ✓ (' + d.status + ')');
+        } else {
+          notify('测试失败: ' + (d.error || d.status || '未知错误'), 'err');
+        }
+      } catch { notify('请求失败', 'err'); }
+      w._testing = false;
+    }
+
     async function removeHook(i) {
       try {
         const d = await (await fetch(API + '/webhooks/' + i, { method: 'DELETE' })).json();
@@ -271,7 +287,7 @@ createApp({
 
     onMounted(() => { loadConfig(); loadStatus(); setInterval(loadStatus, 10000); });
 
-    return { status, form, saving, toast, varsList, saveImap, addHook, updateHook, removeHook, templateRows, copyVar, applyPreset };
+    return { status, form, saving, toast, varsList, saveImap, addHook, updateHook, testHook, removeHook, templateRows, copyVar, applyPreset };
   }
 }).mount('#app');
 </script>
