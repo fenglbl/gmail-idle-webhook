@@ -51,7 +51,9 @@ export class GmailWatcher {
     clearTimeout(this._reconnectTimer);
     clearInterval(this._pollTimer);
     if (this.client) {
-      try { await this.client.logout(); } catch {}
+      try {
+        if (this.client.usable) await this.client.logout();
+      } catch {}
       this.client = null;
     }
     logger.info('GmailWatcher 停止');
@@ -87,7 +89,7 @@ export class GmailWatcher {
     } finally {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
-      try { await this.client.logout(); } catch {}
+      try { if (this.client?.usable) await this.client.logout(); } catch {}
       this.client = null;
     }
 
