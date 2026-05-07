@@ -3,13 +3,15 @@ import { simpleParser } from 'mailparser';
 import { sendWebhooks } from './webhook.js';
 import logger from './logger.js';
 
+const NOOP_INTERVAL = 30000; // 30秒发一次 NOOP 兜底
+
 export class GmailWatcher {
   constructor(config) {
     this.config = config;
     this.client = null;
     this.running = false;
     this._reconnectTimer = null;
-    this._lastUid = 0; // 已处理的最大 UID
+    this._lastUid = 0;
   }
 
   _makeClient() {
@@ -35,6 +37,7 @@ export class GmailWatcher {
   async stop() {
     this.running = false;
     clearTimeout(this._reconnectTimer);
+    if (this._noopTimer) clearInterval(this._noopTimer);
     if (this.client) {
       try { await this.client.logout(); } catch {}
       this.client = null;
@@ -50,17 +53,30 @@ export class GmailWatcher {
       await this.client.connect();
       logger.info('IMAP 连接成功');
 
-      // 打开 INBOX，记录当前 uidNext，只处理之后的新邮件
       const lock = await this.client.getMailboxLock('INBOX');
       this._lastUid = this.client.mailbox.uidNext - 1;
+      logger.info(`uidNext=${this._lastUid + 1}，从 ${this._lastUid + 1} 开始监听`);
       lock.release();
-      logger.info(`INBOX uidNext: ${this._lastUid + 1}，从 ${this._lastUid + 1} 开始监听`);
 
-      // 进入 IDLE 循环
+      // NOOP 兜底：每 30 秒主动触发服务器刷新，防止 IDLE 通知丢失
+      this._noopTimer = setInterval(async () => {
+        if (this.client?.usable) {
+          try {
+            await this.client.noop();
+            logger.debug('NOOP 发送，检查新邮件');
+            await this._checkNew();
+          } catch (err) {
+            logger.debug('NOOP 异常:', err.message);
+          }
+        }
+      }, NOOP_INTERVAL);
+
+      // IDLE 循环
       while (this.running) {
         try {
           logger.debug('进入 IDLE...');
           await this.client.idle();
+          logger.debug('IDLE 返回，检查新邮件');
           await this._checkNew();
         } catch (idleErr) {
           logger.warn('IDLE 异常:', idleErr.message);
@@ -70,6 +86,7 @@ export class GmailWatcher {
     } catch (err) {
       logger.error('IMAP 连接失败:', err.message);
     } finally {
+      if (this._noopTimer) { clearInterval(this._noopTimer); this._noopTimer = null; }
       try { await this.client.logout(); } catch {}
       this.client = null;
     }
@@ -85,16 +102,11 @@ export class GmailWatcher {
     if (!this.client || !this.client.usable) return;
 
     try {
-      // 只查 UID 大于上次处理的
       const uidRange = `${this._lastUid + 1}:*`;
+      logger.debug(`fetch uid ${uidRange}`);
       const messages = this.client.fetch(
         { uid: uidRange },
-        {
-          uid: true,
-          source: true,
-          envelope: true,
-          internalDate: true,
-        }
+        { uid: true, source: true, envelope: true, internalDate: true }
       );
 
       let maxUid = this._lastUid;
@@ -124,7 +136,9 @@ export class GmailWatcher {
       }
 
       this._lastUid = maxUid;
-      if (count === 0) {
+      if (count > 0) {
+        logger.info(`处理了 ${count} 封新邮件，lastUid=${this._lastUid}`);
+      } else {
         logger.debug('无新邮件');
       }
     } catch (fetchErr) {
