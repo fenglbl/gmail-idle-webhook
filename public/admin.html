@@ -235,7 +235,11 @@ createApp({
     }
 
     function copyVar(v) {
-      navigator.clipboard.writeText(v).then(() => notify('已复制 ' + v));
+      const ta = document.createElement('textarea');
+      ta.value = v; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      notify('已复制 ' + v);
     }
 
     function applyPreset(type) {
