@@ -53,9 +53,7 @@ app.put('/config', async (req, res) => {
 // 添加 webhook
 app.post('/webhooks', (req, res) => {
   const { url, headers, template } = req.body;
-  if (!url) return res.status(400).json({ error: 'url required' });
-
-  config.webhooks.push({ url, headers: headers || {}, template: template || '' });
+  config.webhooks.push({ url: url || '', headers: headers || {}, template: template || '' });
   saveConfig(config);
   res.json({ ok: true, webhooks: config.webhooks });
 });
