@@ -3,7 +3,7 @@ import { simpleParser } from 'mailparser';
 import { sendWebhooks } from './webhook.js';
 import logger from './logger.js';
 
-const NOOP_INTERVAL = 10000;
+const POLL_INTERVAL = 10000; // 10秒轮询
 
 export class GmailWatcher {
   constructor(config) {
@@ -11,9 +11,9 @@ export class GmailWatcher {
     this.client = null;
     this.running = false;
     this._reconnectTimer = null;
-    this._noopTimer = null;
+    this._pollTimer = null;
     this._lastUid = 0;
-    this._checking = false; // 防并发锁
+    this._checking = false;
   }
 
   _makeClient() {
@@ -39,7 +39,7 @@ export class GmailWatcher {
   async stop() {
     this.running = false;
     clearTimeout(this._reconnectTimer);
-    if (this._noopTimer) clearInterval(this._noopTimer);
+    clearInterval(this._pollTimer);
     if (this.client) {
       try { await this.client.logout(); } catch {}
       this.client = null;
@@ -55,36 +55,28 @@ export class GmailWatcher {
       await this.client.connect();
       logger.info('IMAP 连接成功');
 
+      // 打开 INBOX，记录当前 uidNext
       const lock = await this.client.getMailboxLock('INBOX');
       this._lastUid = this.client.mailbox.uidNext - 1;
       logger.info(`uidNext=${this._lastUid + 1}，从 ${this._lastUid + 1} 开始监听`);
       lock.release();
 
-      // NOOP 兜底
-      this._noopTimer = setInterval(() => {
-        if (this.client?.usable && !this._checking) {
-          this.client.noop().catch(() => {});
-          logger.debug('NOOP 触发检查');
-          this._checkNew('NOOP');
-        }
-      }, NOOP_INTERVAL);
+      // 轮询检查新邮件
+      this._pollTimer = setInterval(() => {
+        if (this.running) this._checkNew();
+      }, POLL_INTERVAL);
 
-      // IDLE 循环
-      while (this.running) {
-        try {
-          logger.debug('进入 IDLE...');
-          await this.client.idle();
-          logger.debug('IDLE 返回');
-          await this._checkNew('IDLE');
-        } catch (idleErr) {
-          logger.warn('IDLE 异常:', idleErr.message);
-          break;
-        }
-      }
+      logger.info(`每 ${POLL_INTERVAL / 1000}s 轮询一次`);
+
+      // 保持连接，等 stop() 关闭
+      await new Promise((resolve) => {
+        this._resolve = resolve;
+      });
     } catch (err) {
       logger.error('IMAP 连接失败:', err.message);
     } finally {
-      if (this._noopTimer) { clearInterval(this._noopTimer); this._noopTimer = null; }
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
       try { await this.client.logout(); } catch {}
       this.client = null;
     }
@@ -96,56 +88,58 @@ export class GmailWatcher {
     }
   }
 
-  async _checkNew(source = 'IDLE') {
-    if (this._checking) {
-      logger.debug(`跳过检查 [${source}]（上一轮未结束）`);
-      return;
-    }
+  async _checkNew() {
+    if (this._checking) return;
     if (!this.client || !this.client.usable) return;
 
     this._checking = true;
     try {
       const uidRange = `${this._lastUid + 1}:*`;
-      logger.debug(`[${source}] fetch uid ${uidRange} (lastUid=${this._lastUid})`);
-      const messages = this.client.fetch(
-        { uid: uidRange },
-        { uid: true, source: true, envelope: true, internalDate: true }
-      );
+
+      // 每次 fetch 前先获取 mailbox lock，保证状态一致
+      const lock = await this.client.getMailboxLock('INBOX');
 
       let maxUid = this._lastUid;
       let count = 0;
 
-      for await (const msg of messages) {
-        if (msg.uid <= this._lastUid) continue;
-        count++;
-        try {
-          const parsed = await simpleParser(msg.source);
-          const vars = {
-            uid: String(msg.uid),
-            from: parsed.from?.text || '',
-            to: parsed.to?.text || '',
-            subject: parsed.subject || '',
-            date: parsed.date?.toISOString() || msg.internalDate?.toISOString() || '',
-            text: (parsed.text || '').substring(0, 5000),
-            html: parsed.html ? 'true' : 'false',
-            messageId: parsed.messageId || '',
-          };
-          logger.info(`新邮件: ${vars.subject} (uid ${vars.uid})`);
-          await sendWebhooks(this.config.webhooks, vars);
-          if (msg.uid > maxUid) maxUid = msg.uid;
-        } catch (parseErr) {
-          logger.error('解析邮件失败:', parseErr.message);
+      try {
+        const messages = this.client.fetch(
+          { uid: uidRange },
+          { uid: true, source: true, envelope: true, internalDate: true }
+        );
+
+        for await (const msg of messages) {
+          if (msg.uid <= this._lastUid) continue;
+          count++;
+          try {
+            const parsed = await simpleParser(msg.source);
+            const vars = {
+              uid: String(msg.uid),
+              from: parsed.from?.text || '',
+              to: parsed.to?.text || '',
+              subject: parsed.subject || '',
+              date: parsed.date?.toISOString() || msg.internalDate?.toISOString() || '',
+              text: (parsed.text || '').substring(0, 5000),
+              html: parsed.html ? 'true' : 'false',
+              messageId: parsed.messageId || '',
+            };
+            logger.info(`新邮件: ${vars.subject} (uid ${vars.uid})`);
+            await sendWebhooks(this.config.webhooks, vars);
+            if (msg.uid > maxUid) maxUid = msg.uid;
+          } catch (parseErr) {
+            logger.error('解析邮件失败:', parseErr.message);
+          }
         }
+      } finally {
+        lock.release();
       }
 
       this._lastUid = maxUid;
       if (count > 0) {
-        logger.info(`[${source}] 处理了 ${count} 封新邮件，lastUid=${this._lastUid}`);
-      } else {
-        logger.debug('无新邮件');
+        logger.info(`处理了 ${count} 封新邮件，lastUid=${this._lastUid}`);
       }
-    } catch (fetchErr) {
-      logger.error('获取新邮件失败:', fetchErr.message);
+    } catch (err) {
+      logger.error('检查新邮件失败:', err.message);
     } finally {
       this._checking = false;
     }
