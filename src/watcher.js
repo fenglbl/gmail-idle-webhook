@@ -3,7 +3,7 @@ import { simpleParser } from 'mailparser';
 import { sendWebhooks } from './webhook.js';
 import logger from './logger.js';
 
-const NOOP_INTERVAL = 30000; // 30秒发一次 NOOP 兜底
+const NOOP_INTERVAL = 30000;
 
 export class GmailWatcher {
   constructor(config) {
@@ -11,7 +11,9 @@ export class GmailWatcher {
     this.client = null;
     this.running = false;
     this._reconnectTimer = null;
+    this._noopTimer = null;
     this._lastUid = 0;
+    this._checking = false; // 防并发锁
   }
 
   _makeClient() {
@@ -58,16 +60,12 @@ export class GmailWatcher {
       logger.info(`uidNext=${this._lastUid + 1}，从 ${this._lastUid + 1} 开始监听`);
       lock.release();
 
-      // NOOP 兜底：每 30 秒主动触发服务器刷新，防止 IDLE 通知丢失
-      this._noopTimer = setInterval(async () => {
-        if (this.client?.usable) {
-          try {
-            await this.client.noop();
-            logger.debug('NOOP 发送，检查新邮件');
-            await this._checkNew();
-          } catch (err) {
-            logger.debug('NOOP 异常:', err.message);
-          }
+      // NOOP 兜底
+      this._noopTimer = setInterval(() => {
+        if (this.client?.usable && !this._checking) {
+          this.client.noop().catch(() => {});
+          logger.debug('NOOP 触发检查');
+          this._checkNew();
         }
       }, NOOP_INTERVAL);
 
@@ -76,7 +74,7 @@ export class GmailWatcher {
         try {
           logger.debug('进入 IDLE...');
           await this.client.idle();
-          logger.debug('IDLE 返回，检查新邮件');
+          logger.debug('IDLE 返回');
           await this._checkNew();
         } catch (idleErr) {
           logger.warn('IDLE 异常:', idleErr.message);
@@ -99,11 +97,16 @@ export class GmailWatcher {
   }
 
   async _checkNew() {
+    if (this._checking) {
+      logger.debug('跳过 _checkNew（上一轮未结束）');
+      return;
+    }
     if (!this.client || !this.client.usable) return;
 
+    this._checking = true;
     try {
       const uidRange = `${this._lastUid + 1}:*`;
-      logger.debug(`fetch uid ${uidRange}`);
+      logger.debug(`fetch uid ${uidRange} (lastUid=${this._lastUid})`);
       const messages = this.client.fetch(
         { uid: uidRange },
         { uid: true, source: true, envelope: true, internalDate: true }
@@ -143,6 +146,8 @@ export class GmailWatcher {
       }
     } catch (fetchErr) {
       logger.error('获取新邮件失败:', fetchErr.message);
+    } finally {
+      this._checking = false;
     }
   }
 
