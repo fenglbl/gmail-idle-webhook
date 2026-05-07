@@ -1,13 +1,23 @@
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
 import express from 'express';
 import { loadConfig, saveConfig } from './config.js';
 import { GmailWatcher } from './watcher.js';
 import logger from './logger.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const config = loadConfig();
 const watcher = new GmailWatcher(config);
 const app = express();
 
 app.use(express.json());
+
+// Admin 页面
+app.use('/admin', express.static(resolve(__dirname, '..', 'public')));
+app.get('/admin', (_req, res) => {
+  res.sendFile(resolve(__dirname, '..', 'public', 'admin.html'));
+});
 
 // 健康检查
 app.get('/health', (_req, res) => {
@@ -74,10 +84,11 @@ const PORT = process.env.PORT || 3800;
 
 app.listen(PORT, () => {
   logger.info(`API 监听 :${PORT}`);
+  logger.info(`Admin 页面: http://localhost:${PORT}/admin`);
   // 启动 watcher（如果配置完整）
   if (config.imap.user && config.imap.password) {
     watcher.start();
   } else {
-    logger.warn('IMAP 未配置，请 PUT /config 设置账号密码');
+    logger.warn('IMAP 未配置，请访问 /admin 设置账号密码');
   }
 });

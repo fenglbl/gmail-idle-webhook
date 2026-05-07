@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gmail Webhook Admin</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #1a1a1a; min-height: 100vh; }
+
+.container { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+
+header { margin-bottom: 32px; }
+header h1 { font-size: 20px; font-weight: 600; }
+header .status { font-size: 13px; color: #666; margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+header .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+header .dot.on { background: #22c55e; }
+header .dot.off { background: #ef4444; }
+
+.card { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #333; }
+
+label { display: block; font-size: 13px; font-weight: 500; color: #555; margin-bottom: 4px; }
+input, select { width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; transition: border-color .15s; }
+input:focus, select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
+
+.row { display: grid; gap: 12px; }
+.row-2 { grid-template-columns: 2fr 1fr; }
+.row-3 { grid-template-columns: 2fr 1fr 1fr; }
+
+.field { margin-bottom: 12px; }
+
+.btn { padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: background .15s; }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+.btn-danger { background: #fee2e2; color: #dc2626; }
+.btn-danger:hover { background: #fecaca; }
+.btn-ghost { background: #f3f4f6; color: #374151; }
+.btn-ghost:hover { background: #e5e7eb; }
+
+.hook-list { list-style: none; }
+.hook-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.hook-item:last-child { border-bottom: none; }
+.hook-url { flex: 1; font-size: 13px; font-family: monospace; color: #555; word-break: break-all; }
+
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 99; animation: fadeInUp .2s ease; }
+.toast.ok { background: #22c55e; color: #fff; }
+.toast.err { background: #ef4444; color: #fff; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="container">
+    <header>
+      <h1>📧 Gmail Webhook</h1>
+      <div class="status">
+        <span class="dot" :class="status.connected ? 'on' : 'off'"></span>
+        {{ status.connected ? '已连接' : status.running ? '连接中...' : '未启动' }}
+        <span style="color:#aaa">·</span>
+        IMAP IDLE + Webhook
+      </div>
+    </header>
+
+    <!-- IMAP 配置 -->
+    <div class="card">
+      <h2>IMAP 账号</h2>
+      <div class="field">
+        <label>邮箱地址</label>
+        <input v-model="form.imap.user" placeholder="you@gmail.com" />
+      </div>
+      <div class="field">
+        <label>App Password</label>
+        <input v-model="form.imap.password" type="password" placeholder="xxxx-xxxx-xxxx-xxxx" />
+      </div>
+      <div class="row row-3" style="margin-bottom:4px">
+        <div class="field" style="margin-bottom:0">
+          <label>Host</label>
+          <input v-model="form.imap.host" />
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Port</label>
+          <input v-model.number="form.imap.port" type="number" />
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>SSL</label>
+          <select v-model="form.imap.secure">
+            <option :value="true">是</option>
+            <option :value="false">否</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn btn-primary" :disabled="saving" @click="saveImap">
+          {{ saving ? '保存中...' : '保存并重启' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Webhooks -->
+    <div class="card">
+      <h2>Webhooks</h2>
+      <ul class="hook-list" v-if="form.webhooks.length">
+        <li class="hook-item" v-for="(w, i) in form.webhooks" :key="i">
+          <span class="hook-url">{{ w.url }}</span>
+          <button class="btn btn-danger" @click="removeHook(i)">删除</button>
+        </li>
+      </ul>
+      <p v-else style="font-size:13px;color:#999;margin-bottom:12px">暂无 webhook</p>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <input v-model="newHookUrl" placeholder="https://your-webhook.com/endpoint" style="flex:1" @keyup.enter="addHook" />
+        <button class="btn btn-ghost" @click="addHook" :disabled="!newHookUrl">添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" :class="toast.type" v-if="toast.show">{{ toast.msg }}</div>
+</div>
+
+<script>
+const API = window.location.pathname.replace(/\/admin\/?.*$/, '') || '';
+
+const { createApp, ref, reactive, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const status = reactive({ running: false, connected: false });
+    const form = reactive({
+      imap: { host: 'imap.gmail.com', port: 993, secure: true, user: '', password: '' },
+      webhooks: [],
+    });
+    const saving = ref(false);
+    const newHookUrl = ref('');
+    const toast = reactive({ show: false, msg: '', type: 'ok' });
+
+    function notify(msg, type = 'ok') {
+      toast.show = true; toast.msg = msg; toast.type = type;
+      setTimeout(() => toast.show = false, 2500);
+    }
+
+    async function loadStatus() {
+      try {
+        const r = await fetch(API + '/health');
+        const d = await r.json();
+        Object.assign(status, d.watcher);
+      } catch {}
+    }
+
+    async function loadConfig() {
+      try {
+        const r = await fetch(API + '/config');
+        const d = await r.json();
+        if (d.imap) Object.assign(form.imap, d.imap);
+        if (d.webhooks) form.webhooks = d.webhooks;
+      } catch {}
+    }
+
+    async function saveImap() {
+      saving.value = true;
+      try {
+        const r = await fetch(API + '/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imap: form.imap }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          notify('已保存，watcher 重启中...');
+          setTimeout(loadStatus, 2000);
+        } else {
+          notify('保存失败', 'err');
+        }
+      } catch {
+        notify('请求失败', 'err');
+      }
+      saving.value = false;
+    }
+
+    async function addHook() {
+      const url = newHookUrl.value.trim();
+      if (!url) return;
+      try {
+        const r = await fetch(API + '/webhooks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          form.webhooks = d.webhooks;
+          newHookUrl.value = '';
+          notify('已添加');
+        }
+      } catch {
+        notify('添加失败', 'err');
+      }
+    }
+
+    async function removeHook(i) {
+      try {
+        const r = await fetch(API + '/webhooks/' + i, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.ok) {
+          form.webhooks = d.webhooks;
+          notify('已删除');
+        }
+      } catch {
+        notify('删除失败', 'err');
+      }
+    }
+
+    onMounted(() => { loadConfig(); loadStatus(); setInterval(loadStatus, 10000); });
+
+    return { status, form, saving, newHookUrl, toast, saveImap, addHook, removeHook };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
