@@ -63,6 +63,16 @@ export class GmailWatcher {
     if (!this.running) return;
     this.client = this._makeClient();
 
+    // 防止未捕获的 error 事件崩进程
+    this.client.on('error', (err) => {
+      logger.error('IMAP 连接异常:', err.message);
+      // 让 _connect 的 finally 块处理清理和重连
+      if (this._resolve) {
+        this._resolve();
+        this._resolve = null;
+      }
+    });
+
     try {
       await this.client.connect();
       logger.info('IMAP 连接成功');
