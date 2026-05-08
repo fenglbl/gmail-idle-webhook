@@ -58,18 +58,31 @@ curl -X PUT http://localhost:3800/config \
 
 ## Webhook Payload
 
+默认直接发送邮件字段（支持自定义模板，见下）：
+
 ```json
 {
-  "type": "new_mail",
-  "data": {
-    "uid": 123,
-    "from": "sender@example.com",
-    "to": "you@gmail.com",
-    "subject": "邮件标题",
-    "date": "2026-05-07T09:00:00.000Z",
-    "text": "正文前5000字符...",
-    "html": true
-  }
+  "uid": "123",
+  "from": "sender@example.com",
+  "to": "you@gmail.com",
+  "subject": "邮件标题",
+  "date": "2026-05-07T09:00:00.000Z",
+  "text": "正文前5000字符...",
+  "html": "true",
+  "messageId": "<xxx@mail.gmail.com>"
+}
+```
+
+> `uid`、`html` 为字符串类型。
+
+### 自定义模板
+
+添加 webhook 时传 `template` 字段，用 `{{变量名}}` 引用：
+
+```json
+{
+  "url": "https://example.com/hook",
+  "template": "新邮件: {{subject}}\n来自: {{from}}"
 }
 ```
 
